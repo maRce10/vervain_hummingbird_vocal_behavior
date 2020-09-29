@@ -1,0 +1,1 @@
+cppFunction(' int fibonacci_c2(int n) { if (n < 2) { return(n); } else { return(fibonacci_c2(n-1) + fibonacci_c2(n-2)); } }') 

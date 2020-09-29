@@ -1,0 +1,20 @@
+rm(list = ls())
+
+library(Rcpp) 
+library(rbenchmark)
+
+
+
+
+# Definiendo la funcion en R 
+fibonacci <- function(n) { if (n < 2) { return(n) } else { return(fibonacci (n-1) + fibonacci (n-2)) } } 
+
+# Definiendo la funcion en C 
+cppFunction(' int fibonacci_c(int n) { if (n < 2) { return(n); } else { return(fibonacci_c(n-1) + fibonacci_c(n-2)); } }') 
+
+benchmark(fibonacci(25), fibonacci_c(25))[,1:4] 
+
+benchmark(fibonacci(25), fibonacci_c2(25))[,1:4] 
+
+benchmark(fibonacci_c(25), fibonacci_c2(25))[,1:4] 
+

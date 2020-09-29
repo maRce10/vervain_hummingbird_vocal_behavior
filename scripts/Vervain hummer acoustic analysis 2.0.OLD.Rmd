@@ -1,0 +1,632 @@
+---
+title: <center><font size="7"><b>Song analysis</b></font></center>
+subtitle: <center><font size="4"><b>Vervain Hummingbird vocal behavior 2.0</b></font></center>
+author: <center><font size="4"><a href="http://marceloarayasalas.weebly.com/">Marcelo Araya-Salas, PhD</a></font></center>
+output:
+  html_document:
+    
+    toc: yes
+    toc_depth: 3
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+fontsize: 12pt 
+editor_options: 
+  chunk_output_type: console
+---
+
+
+<style>
+.column-left{
+  float: left;
+  width: 30%;
+  text-align: left;
+}
+.column-center{
+  display: inline-block;
+  width: 30%;
+  text-align: center;
+}
+.column-right{
+  float: right;
+  width: 40%;
+  text-align: right;
+}
+</style>
+
+```{r packages, message=FALSE,warning=FALSE, echo=FALSE, eval = T, include=F}
+
+# remove all objects
+rm(list = ls())
+
+# unload all non-based packages
+out <- sapply(paste('package:', names(sessionInfo()$otherPkgs), sep = ""), function(x) try(detach(x, unload = FALSE, character.only = TRUE), silent = T))
+
+# list packages (use user/package.name for github packages)
+x <- c("maRce10/warbleR", "ggplot2", "RColorBrewer", "googlesheets", "kableExtra", "knitr", "stringdist",  "maRce10/Rraven", "parallel", "vegan", "irr", "stringr", "moments", "pbapply", "Rtsne", "mclust", "caret", "randomForest", "dkahle/ggmap", "cowplot")
+
+aa <- lapply(x, function(y) {
+  
+  # get pakage name
+  pkg <- strsplit(y, "/")[[1]]
+  pkg <- pkg[length(pkg)]
+  
+  # check if installed, if not then install 
+  if (!pkg %in% installed.packages()[,"Package"])  {
+
+      if (grepl("/", y))  devtools::install_github(y) else
+    install.packages(y) 
+    }
+
+  # load package
+  try(require(pkg, character.only = T), silent = T)
+  })
+
+
+```
+
+```{r functions and parameters, eval = T, echo = F}
+
+cmc <- function(n) rep(adjustcolor(brewer.pal(5, "Spectral"), 
+                                   alpha.f = 0.6), 
+                       ceiling(n/4))[1:n]
+
+cols <- brewer.pal(8, "Spectral")
+
+# source('~/Dropbox/Rraven/R/sort_colms.R')
+# source('~/Dropbox/Rraven/R/match_wav_case.R')
+# source('~/Dropbox/warbleR/R/checksels.R')
+# source('~/Dropbox/warbleR/R/ovlp_sels.R')
+# source('~/Dropbox/warbleR/R/specreator.R')
+# source('~/Dropbox/warbleR/R/spectro_wrblr_int.R')
+# source('~/Dropbox/warbleR/R/stft_wrblr_int.R')
+
+order_values <- function(x) {
+
+  # convert to factor
+  x <- factor(x, levels = as.character(stats::na.exclude(x[!duplicated(x)])))  
+
+  # convert to numeric
+  x <- as.numeric(x)
+
+  return(x)
+  }
+
+match_elem <- function(X, vctr, index)
+{
+ ndx <- X[, names(X)  == index] 
+ index2 <- unique(ndx)  
+  
+  y <- X[ndx == index2[1], names(X) == vctr]
+
+  z <- X[ndx == index2[2], names(X) == vctr]
+  
+  for(i in 2:(length(y) - 1)) {
+  if (y[i] != z[i]) {
+  if (!y[i] %in% y[1:(i - 1)])     {y[y > y[i]] <- y[y > y[i]] + 1 
+  y[i] <- max(y) + 1
+  } else    {
+    if (!z[i] %in% z[1:(i - 1)]) {
+      z[z > z[i]] <- z[z > z[i]] - 1
+    z[i] <- max(z) + 1
+    }
+    }
+}
+}
+  X[ndx == index2[1], names(X) == vctr] <- y
+
+  X[ndx == index2[2], names(X) == vctr] <- z
+  return(X)
+  }
+
+# matrix of origin for mantel tests
+mat_origin <- function(x, as.dist = TRUE) {
+  
+m <- matrix(nrow = length(x), ncol = length(x), dimnames = list(x, x))
+  
+m[] <- 0
+
+out <- lapply(2:length(x),  function(z)
+  {
+  
+    return(ifelse(x[z - 1] == x[z:length(x)], 0, 1)) 
+  
+  })
+
+orig <- do.call(c, out)
+
+m[lower.tri(m, diag=FALSE)] <- orig
+m <- t(m)
+m[lower.tri(m, diag=FALSE)] <- orig
+
+if(as.dist) m <- as.dist(m)
+
+return(m)
+}
+
+
+options("digits" = 3, "digits.secs" = 3, knitr.table.format = "html")
+
+warbleR_options(flim = c(2, 14), bp = c(2, 14), ovlp = 90, wl = 300, parallel = detectCores() - 1, pb = TRUE,  wav.path = "/home/m/Dropbox/Recordings/vervain_recs/converted_sound_files")
+
+```
+
+```{r import selections phoebe, eval = F, echo = F}
+
+dt <- imp_raven(path = "~/Dropbox/Projects/Vervain hummingbird vocal behavior/", files = "vervain.selections.txt", all.data = TRUE, parallel = 3, pb = FALSE)
+
+unique(dt$selec.file)
+
+unique(dt$sound.files)
+
+# View(dt[,grep("Selection|element", names(dt), ignore.case = TRUE)])
+
+# merge columns "selection"
+dt$Selection <- as.numeric(gsub("NA", "", paste0(dt$Selection, dt$Selection1)))
+
+dt <- dt[ , names(dt) != "Selection1"]
+ 
+dt$element <- gsub("NA", "", paste0(dt$Selections, dt$Selection2, dt$`Song selections`, dt$element))
+
+dt <- dt[ , !names(dt) %in% c("Selections", "Selection2", "Song selections", "View", "Begin File", "End Path", "File Offset (s)")]
+
+dt$sound.files <- basename(dt$`Begin Path`)
+
+dt <-  relabel_colms(dt)
+
+# if (length(list.files(path = .Options$warbleR$wav.path, pattern = "\\.WAV$", ignore.case = TRUE)) < length(unique(dt$sound.files))) {
+#   for(i in zps)
+# unzip(zipfile = i, overwrite = F, exdir =.Options$warbleR$wav.path)
+
+
+# cnsdt <- consolidate(dest.path = .Options$warbleR$wav.path, path = .Options$warbleR$wav.path, save.csv = FALSE)
+# }
+
+dt <- sort_colms(dt)
+
+dt$sound.files <- gsub("redo of ", "", dt$sound.files, ignore.case = TRUE)
+
+dt <- match_wav_case(dt, path = .Options$warbleR$wav.path, verbose = FALSE)
+
+# put freq in kHz
+dt$bottom.freq <- dt$bottom.freq / 1000
+
+dt$top.freq <- dt$top.freq / 1000
+
+dt$element <- tolower(dt$element)
+
+# pull out weird looking selections
+weird_sel <- dt[nchar(dt$element) > 2 | dt$element == "", ]
+
+if(nrow(weird_sel) > 0)
+weird_sel$weird <- ("Element name")
+
+# checkwavs(X = dt, path = .Options$warbleR$wav.path)
+
+
+cs <- checksels(X = dt, check.header = FALSE)
+
+exp_raven(cs, file.name = "DELETE", sound.file.path = .Options$warbleR$wav.path)
+
+  # remove short selections
+dt <- dt[which(cs$min.n.samples > 0), ]
+
+## ad short ones to weird selections
+weird2 <- dt[which(cs$min.n.samples < 250), ]
+weird2$weird <- "Too short"
+
+weird_sel <- rbind(weird_sel, weird2)
+  
+weird_sel <- weird_sel[!duplicated(weird_sel),]
+
+weird_sel <- weird_sel[!is.na(weird_sel$sound.files), ]
+
+## check redo files
+
+csredo <- checksels(X = dt_an2)
+
+if(!all(csredo$check.res == "OK")) print("Some selections REDO files not OK")
+
+# remove short selections
+dt_an2 <- dt_an2[which(csredo$min.n.samples > 0), ]
+
+dt$gap <- dt$end  - dt$start
+dt_an2$gap <- dt_an2$end  - dt_an2$start
+
+for(i in 1:(nrow(dt) - 1))
+{ if (dt$sound.files[i] != dt$sound.files[i + 1]) dt$gap[i] <- NA
+if(i < nrow(dt_an2))
+  if (dt_an2$sound.files[i] != dt_an2$sound.files[i + 1]) dt_an2$gap[i] <- NA
+}
+
+cutoff <- 0.22
+
+dt$song <- rep(NA, nrow(dt))
+```
+
+```{r add metadata all files, message=FALSE, warning=FALSE, echo=FALSE, eval = F, include=F}
+
+ggl_dcs <- gs_ls(verbose = FALSE)
+      
+gs_tl <- gs_title("Vervain Spreadsheet", verbose = FALSE)
+      
+rc_info <- gs_read(ss = gs_tl, ws = gs_ws_ls(gs_tl)[1], verbose = FALSE)
+
+# files missing?
+if (any(!unique(dt$sound.files) %in% unique(rc_info$`File name`))) print("some selection/sound files are not represented in meta data"); print(unique(setdiff(rc_info$`File name`, dt$sound.files)))
+
+dt <- merge(dt, rc_info[, c("File name", "Indiv", "Source", "Country", "Location", "Coor Lat", "Coor Long", "Date", "Entered by", "Comments", "Male ID comment")], by.x = "sound.files", by.y = "File name")
+
+# weird_sel <- merge(weird_sel, rc_info[, c("File name", "Entered by")], by.x = "sound.files", by.y = "File name")
+
+# weird_sel <- weird_sel[ , c(ncol(weird_sel), 2:(ncol(weird_sel)-1))]
+
+# order by sound file and time
+dt <- dt[order(dt$sound.files, dt$start), ]
+
+dt <- dt[!duplicated(dt[ , c("sound.files", "start", "end")]), ]
+
+# check overlapping sels
+dt <- ovlp_sels(dt, pb = FALSE, max.ovlp = 0.05, drop = FALSE, priority = sort(unique(dt$element), decreasing = T), priority.col = "element", indx.row = F)
+
+# remove weird element label 
+if (length(which(nchar(dt$element) > 2))) {
+ print("Some element names contained more than 1 character and were removed") 
+dt <- dt[nchar(dt$element) < 3, ]
+}
+
+# leave only identified individuals
+dt <- dt[!is.na(dt$Indiv), ]
+
+write.csv(dt, "vervain selections and metadata.csv", row.names = FALSE)
+
+```
+
+```{r import selected files, message=FALSE, warning=FALSE, echo=FALSE, eval = F, include=F}
+
+dt <- imp_raven(all.data = FALSE, sound.file.col = "Begin File")
+
+dt2 <- imp_raven(all.data = TRUE)
+
+dt <- cbind(dt, dt2[,12:ncol(dt2)])
+
+# head(dt)
+
+cs <- check_sels(dt)
+
+table(cs$check.res)
+
+out <- lapply(unique(cs$sound.files[cs$check.res == "OK"]), function(x)  {
+    
+    X <- cs[cs$sound.files == x, ]
+
+lspec(X = X, labels = "element", pb = FALSE, fast.spec = TRUE, flim = c(if(min(X$bottom.freq) - 1 > 0) min(X$bottom.freq) - 1 else 0, if(max(X$top.freq) + 5 < 22) max(X$top.freq) + 5 else 22), overwrite = F, horizontal = T)
+
+})
+
+# 
+# View(cs[cs$check.res != "OK", ])
+
+# order by sound file and time
+dt <- dt[order(dt$sound.files, dt$start), ]
+
+anyDuplicated((dt[ , c("sound.files", "start", "end")]))
+
+# check overlapping sels
+dt <- ovlp_sels(dt, pb = FALSE, max.ovlp = 0.05, drop = FALSE, priority = sort(unique(dt$element), decreasing = T), priority.col = "element", indx.row = F)
+
+
+any(!is.na(dt$ovlp.sels))
+
+# remove weird element label 
+if (length(which(nchar(dt$element) > 2))) {
+ print("Some element names contained more than 1 character and were removed") 
+dt <- dt[nchar(dt$element) < 3, ]
+}
+x`
+
+
+# leave only identified individuals
+# dt <- dt[!is.na(dt$Indiv), ]
+
+write.csv(dt, "vervain selections and metadata selected files.csv", row.names = FALSE)
+
+```
+
+```{r print long spectrograms, message=FALSE, warning=FALSE, echo=FALSE, eval = F, include=F}
+
+dt <- read.csv("vervain selections and metadata selected files.csv", stringsAsFactors = FALSE)
+
+cs <- check_sels(dt)
+
+table(cs$check.res)
+
+```
+
+
+
+&nbsp;
+
+<center><font size="5"><b>(updated on `r format(Sys.Date(), "%d-%m-%Y")`)</b></font></center> 
+
+&nbsp;
+
+
+### Recordings per individual
+```{r recs per individual, echo=F, eval=T}
+
+dt <- read.csv("vervain selections and metadata.csv", stringsAsFactors = FALSE)
+
+df <- as.data.frame(table(dt$Indiv[!duplicated(dt$sound.files)]))
+
+names(df) <- c("Individual", "Number of recordings")
+
+kbl <- knitr::kable(df, row.names = F, escape = FALSE)
+
+kable_styling(kbl, bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE, font_size = 18)
+
+```
+
+### Elements per recording
+```{r elements per recording, echo=F, eval = T}
+
+agg <- aggregate(dt$element, list(dt$Indiv, dt$sound.files), function(x) length(unique(x)))
+
+names(agg) <- c("Individual", "Sound file", "Number of unique elements")
+
+agg$`Total number of selections` <- as.vector(tapply(dt$element, dt$sound.files, length))
+
+# dur <- wavdur(files = agg$`Sound file`)
+# 
+# agg <- merge(agg, dur, by.x = "Sound file", by.y = "sound.files")
+# 
+# kbl <- knitr::kable(agg, row.names = F, escape = FALSE)
+# 
+# kable_styling(kbl, bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE, font_size = 11)
+
+```
+
+### Accumulation curves per recording
+```{r plot accumulation curves, echo = F, eval = T, fig.width= 12, fig.height= 40,  dpi=100}
+
+dt <- read.csv("vervain selections and metadata.csv", stringsAsFactors = FALSE)
+
+dt$song <- unlist(lapply(unique(dt$sound.files), function(x) rep(1:1000, each = 5)[1:sum(dt$sound.files == x)]))
+
+
+estmr <- lapply(unique(dt$sound.files), function(i){
+  dt1 <- dt[dt$sound.files == i, ]
+
+  dt1$song <- 1
+  cnts_elm <- as.data.frame.matrix(table(dt1$song, dt1$element))
+
+  estmr <- estimateR(cnts_elm)  
+  return(data.frame(sound.files = i, chao1 = estmr[2], chao1.se = estmr[3]))
+  })
+
+chao.estm <- do.call(rbind, estmr)
+
+# on the ones with more than 3 song
+sp_acc <- lapply(unique(dt$sound.files)[tapply(dt$song, dt$sound.files, function(x) length(unique(x))) > 5], function(i)  {
+  dt1 <- dt[dt$sound.files == i,]
+
+cnts_elm <- as.data.frame.matrix(table(dt1$song, dt1$element))
+
+spacc <- as.data.frame(specaccum(cnts_elm)[3:5], stringsAsFactors = FALSE)
+
+spacc$sound.files <- i
+
+spacc$nmbr_songs <- nrow(spacc)
+
+#spacc$country <- dt1$Country[1]
+
+return(spacc)
+})
+
+sp_acc <- do.call(rbind, sp_acc)
+
+
+sp_acc <- merge(sp_acc, dt[!duplicated(dt$sound.files), c("sound.files", "Indiv")])
+
+level.byrow <- function(vec, nc, order){
+  fac <- factor(vec) #if it is not a factor
+  levs <- levels(fac)
+  mlev <- matrix(order, nrow = nc, byrow = FALSE)
+  factor(fac, levels= levs[mlev][1:length(levs)])
+}
+
+nc <- 2
+
+# sp_acc$sound.files <- level.byrow(vec = sp_acc$sound.files, order = order(sp_acc$country[!duplicated(sp_acc$sound.files)], sp_acc$nmbr_songs[!duplicated(sp_acc$sound.files)], decreasing = FALSE), nc = nc)
+
+sp_acc <- merge(sp_acc, chao.estm, by = "sound.files")
+
+sp_acc$ID.n <- sapply(1:nrow(sp_acc), function(x){
+  n <- sum(dt$sound.files == sp_acc$sound.files[x])
+  un.elm <- length(unique(dt$element[dt$sound.files == sp_acc$sound.files[x]]))
+  ID.n <- paste0(sp_acc$Indiv[x], " (",un.elm, "/", n, ")")
+return(ID.n)
+  })
+
+sp_acc$high.n <- sapply(1:nrow(sp_acc), function(x){
+  n <- table(dt$sound.files[dt$Indiv == sp_acc$Indiv[x]])
+  if(n[names(n) == sp_acc$sound.files[x]] == max(n)) return("max") else return("no.max")
+  
+  })
+
+ggplot(sp_acc, aes(sites, richness, col = high.n)) +
+  geom_line(size = 1.5) +
+  # geom_hline(data = chao.estm, aes(yintercept = chao1)) +
+  # geom_ribbon(aes(ymin = chao1 - chao1.se, ymax = chao1 + chao1.se), fill = 'gray', col = 'gray', alpha=0.2) +
+  geom_ribbon(data = sp_acc, aes( ymin = richness - sd, ymax = richness + sd), alpha=0.4) +
+  labs(x = "Number of songs analyzed", y = "Total number of elements") +  
+  facet_wrap(ID.n ~ sound.files, ncol = nc, scales = "free_x") + 
+  theme_classic(base_size = 22)
+
+# 
+# sp_acc2 <- sp_acc[sp_acc$sound.files %in%  c("ARAYA-SAL-115.WAV", "ARAYA-SAL-113.WAV"), ]
+# 
+# ggplot(sp_acc2, aes(sites, richness)) +
+#   geom_line(size = 1.5) +
+#   # geom_hline(data = chao.estm, aes(yintercept = chao1)) +
+#   # geom_ribbon(aes(ymin = chao1 - chao1.se, ymax = chao1 + chao1.se), fill = 'gray', col = 'gray', alpha=0.2) +
+#   geom_ribbon(data = sp_acc2, aes( ymin = richness - sd, ymax = richness + sd), alpha=0.4) +
+#   labs(x = "Number of songs analyzed", y = "Total number of elements") +  
+#   facet_wrap(ID.n ~ sound.files, ncol = nc, scales = "free_x") + 
+#   theme_classic(base_size = 22)
+
+```
+
+### Distribution of elements using recs with highest number of selections
+```{r distrb elements, echo=F, eval = T, message=F, warning=F}
+
+out <- lapply(unique(agg$Individual), function(x){
+  
+  X <- agg[agg$Individual == x, ]
+  
+  return(X[which.max(X$`Number of unique elements`),])
+})
+
+selected.recs <- do.call(rbind, out)
+
+kbl <- knitr::kable(selected.recs, row.names = F, escape = FALSE)
+
+kable_styling(kbl, bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE, font_size = 11)
+
+
+ggplot(data = selected.recs, aes(selected.recs$`Number of unique elements`)) + 
+  geom_histogram(fill = cols[8], bins = 20) + 
+   labs(x = "Number of unique elements") +  
+
+theme_classic(base_size = 22)
+
+## subset data to selected songs
+sel.sels <- dt[dt$sound.files %in% selected.recs$`Sound file`, ]
+
+write.csv(sel.sels, "Selections and metadata 1 rec per ID.csv", row.names = FALSE)
+
+```
+
+### Map of locations
+
+#### terrain and satellite maps
+```{r maps, echo=F, eval = T, message=F, warning=F, fig.width= 12, fig.height= 7,  dpi=100}
+
+sels <- read.csv("Selections and metadata 1 rec per ID.csv", stringsAsFactors = FALSE)
+
+out <- lapply(unique(sels$Indiv), function(x){
+  X <- sels[sels$Indiv == x, ]
+  
+  df <- data.frame(ID = x, sound.files = X$sound.files, lat = mean(X$Coor.Lat), lon = mean(X$Coor.Long), unq.elmts = length(unique(X$element)), stringsAsFactors = FALSE)
+
+  return(df)
+  })
+
+uniq.locs <- do.call(rbind, out)
+
+#get maps
+########################
+# register_google(key = 'AIzaSyCIkxXiTA8KUfDb8Gm9FnJlHo0QSwDREOk')
+# 
+# 
+# map.sat <- get_map(location = c(lon = mean(uniq.locs$lon), lat = mean(uniq.locs$lat)), zoom = 13,
+#                maptype = "satellite", source = "google")
+# 
+# map.terr <- get_map(location = c(lon = mean(uniq.locs$lon), lat = mean(uniq.locs$lat)), zoom = 13,
+#                maptype = "terrain", source = "google")
+# 
+# saveRDS(list(map.sat = map.sat, map.terr = map.terr), "maps from google.RDS")
+########################
+
+attach(readRDS("maps from google.RDS"))
+
+
+xpn <- 0.01
+
+map1 <- ggmap(map.terr) + 
+       scale_x_continuous(limits =  range(uniq.locs$lon), expand = rep(xpn, 2)) +
+       scale_y_continuous(limits =  range(uniq.locs$lat), expand = rep(xpn, 2)) + 
+    theme_classic() + 
+  theme(
+    panel.border = element_rect(colour = "grey", fill=NA, size=2)
+  ) + geom_point(data = uniq.locs, aes(x = lon, y = lat), size = 4,  col = cols[2],  alpha = 0.4)
+
+
+map2 <- ggmap(map.sat) + 
+       scale_x_continuous(limits =  range(uniq.locs$lon), expand = rep(xpn, 2)) +
+       scale_y_continuous(limits =  range(uniq.locs$lat), expand = rep(xpn, 2)) + 
+    theme_classic() + 
+  theme(
+    panel.border = element_rect(colour = "grey", fill=NA, size=2)
+  ) + geom_point(data = uniq.locs, aes(x = lon, y = lat), size = 5,  col = cols[1], alpha = 0.4)
+
+
+plot_grid(map1, map2, nrow = 1)
+
+```
+
+#### By number of elements
+```{r maps with number of elements, echo=F, eval = T, message=F, warning=F}
+
+ggmap(map.terr) + 
+       scale_x_continuous(limits =  range(uniq.locs$lon), expand = rep(xpn, 2)) +
+       scale_y_continuous(limits =  range(uniq.locs$lat), expand = rep(xpn, 2)) + 
+    theme_classic() + 
+  theme(
+    legend.position = c(.8, .3),
+    panel.border = element_rect(colour = "grey", fill=NA, size=2)
+  ) + geom_point(data = uniq.locs, aes(x = lon, y = lat, col = unq.elmts), size = 4, alpha = 0.5) +
+   scale_color_gradient(low = cols[6],  high = cols[2])
+
+```
+
+### Acoustic analysis
+```{r , echo = F, eval = F, fig.width= 12, fig.height= 27,  dpi=100}
+
+sels <- read.csv("Selections and metadata 1 rec per ID.csv", stringsAsFactors = FALSE)
+
+exp_raven(sels, sound.file.path = .Options$warbleR$wav.path, file.name = "vervain.selections")
+
+# sel tailor results are also in the recording folder
+# tail.sels <- sel_tailor(sels, auto.next = TRUE, frange = TRUE, pause = 0, osci = FALSE, collevels = seq(-100, 0, 3))
+
+
+
+# sel tailor results for the first bout of tailoring before fixing IDs
+tail.sels <- read.csv("seltailor_output1.csv")
+
+msels <- merge(sels[, !names(sels) %in% c("start", "end", "top.freq", "bottom.freq")], tail.sels[,c("sound.files", "selec", "selec.file", "element", "start", "end", "top.freq", "bottom.freq")], by = c("sound.files", "selec", "selec.file", "element"), all = FALSE)
+
+msels <- sort_colms(msels)
+
+left.sels <- sels[!paste(sels$sound.files, sels$selec) %in% paste(msels$sound.files, msels$selec), ]
+
+
+cnsldt.sels <- rbind(msels, left.sels)
+
+nrow(sels) == nrow(cnsldt.sels)
+
+cnsldt.sels$Source <- gsub("recordins", "recordings", cnsldt.sels$Source)
+
+cs <- check_sels(cnsldt.sels)
+
+table(cs$check.res)
+
+est_bs <- selection_table(X = cnsldt.sels, extended = TRUE, confirm.extended = TRUE, mar = mean((cnsldt.sels$end - cnsldt.sels$start)), by.song = "sound.files")
+
+
+
+
+attributes(est_bs)$metadata <- read.csv("Vervain recording google drive metadata.csv")
+
+attributes(est_bs)$description <- "Vervain hummingbird recordings gathered during a Punta Cana field trip in January 2018 of the Ornithology class, Cornell University. Recordings where made with a mixpre3 recorder and a sennheiser MKH20 mic on a parabola telinga. The dataset also contains recordings from other libraries and other localities. Extended selection table was created by song using as song the recording ID. Selection were made on Raven 1.5 using visual inspection and cured in warbleR using sel_tailor()"
+
+est_bs$sound.files <- gsub(".wav", "", sapply(est_bs$sound.files, function(x) strsplit(x, "song_")[[1]][2], USE.NAMES = FALSE), ignore.case = TRUE)
+
+names(attributes(est_bs)$wave.objects) <- gsub(".wav", "", sapply(names(attributes(est_bs)$wave.objects), function(x) strsplit(x, "song_")[[1]][2], USE.NAMES = FALSE), ignore.case = TRUE)
+
+attributes(est_bs)$check.results$sound.files <- gsub(".wav", "", sapply(attributes(est_bs)$check.results$sound.files, function(x) strsplit(x, "song_")[[1]][2], USE.NAMES = FALSE), ignore.case = TRUE)
+
+saveRDS(est_bs, "Extended_selection_table_vervain_hummingbirds_by_song.RDS")
+
+```
